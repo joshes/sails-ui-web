@@ -1,2 +1,4 @@
 aiohttp
-python-sailsd
+# Until the latest master is on pip
+# python-sailsd
+git+https://github.com/sails-simulator/python-sailsd.git@53f7f3d
