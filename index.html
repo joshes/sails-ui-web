@@ -1,106 +1,133 @@
-<!DOCTYPE html>
 <html>
-  <head>
-    <title>View Animation</title>
-    <link rel="stylesheet" href="http://openlayers.org/en/v3.18.2/css/ol.css" type="text/css">
-    <!-- The line below is only needed for old environments like Internet Explorer and Android 4.x -->
-    <script src="http://cdn.polyfill.io/v2/polyfill.min.js?features=requestAnimationFrame,Element.prototype.classList,URL"></script>
-    <script src="http://openlayers.org/en/v3.18.2/build/ol.js"></script>
+<head>
+    <script src="https://cdn.rawgit.com/openlayers/openlayers.github.io/master/en/v5.2.0/build/ol.js"></script>
+    <link rel="stylesheet" href="https://cdn.rawgit.com/openlayers/openlayers.github.io/master/en/v5.2.0/css/ol.css">
     <style type="text/css">
         html, body, #map {
             margin: 0;
             width: 100%;
             height: 100%;
         }
-
-        #text {
-            position: absolute;
-            bottom: 1em;
-            left: 1em;
-            width: 512px;
-            z-index: 20000;
-            background-color: white;
-            padding: 0 0.5em 0.5em 0.5em;
-        }
     </style>
-  </head>
-  <body>
-    <div id="map" class="map"></div>
-    <script>
-      var view = new ol.View({
-        // the view's initial state
-        center: ol.proj.fromLonLat([0,
-                                    0]),
-        zoom: 6
-      });
+</head>
+<body>
+<div id="map" class="map"></div>
+<script>
+    var vectorSource = new ol.source.Vector({});
 
-      var map = new ol.Map({
-        layers: [
-          new ol.layer.Tile({
-            preload: 4,
-            source: new ol.source.OSM()
-          }),
-          new ol.layer.Tile({
-            preload: 4,
-            source: new ol.source.XYZ({
-                url: 'http://t1.openseamap.org/seamark/{z}/{x}/{y}.png'
-            })
-          })
-        ],
-        // Improve user experience by loading tiles while animating. Will make
-        // animations stutter on mobile or slow devices.
-        loadTilesWhileAnimating: true,
-        target: 'map',
-        controls: ol.control.defaults({
-          attributionOptions: /** @type {olx.control.AttributionOptions} */ ({
-            collapsible: false
-          })
-        }),
-        view: view
-      });
+    var currentZoom = 12;
+    var shouldPan = true;
 
-      var boat_marker = new ol.Feature(new ol.geom.Point(0, 0));
-
-      document.addEventListener("DOMContentLoaded", function() {
-          'use strict';
-          var protocol = window.location.protocol == "https:" ? "wss" : "ws";
-          var host = window.location.hostname;
-          var port = (location.port ? ':'+location.port: '');
-          var ws = null;
-
-          function start(){
-              ws = new WebSocket(protocol + "://" + host + port + "/ws");
-              ws.onopen = function(){
-                  console.log('connected!');
-              };
-              ws.onmessage = function(e){
-                  console.log(e.data);
-              };
-              ws.onclose = function(){
-                  console.log('closed!');
-                  check();
-              };
-              ws.onmessage = function (event) {
-                  var sailsd_data = JSON.parse(event.data);
-                  console.log(sailsd_data);
-
-                  var loc = ol.proj.fromLonLat([sailsd_data.longitude,
-                          sailsd_data.latitude]);
-
-                  var pan = ol.animation.pan({
-                      duration: 100,
-                      source: /** @type {ol.Coordinate} */ (view.getCenter())
-                  });
-                  map.beforeRender(pan);
-                  view.setCenter(loc);
-              };
-          }
-          function check(){
-              if(!ws || ws.readyState === WebSocket.CLOSED) start();
-          }
-          start();
-          setInterval(check, 5000);
+    var view = new ol.View({
+        center: ol.proj.fromLonLat([0, 0]),
+        zoom: currentZoom
     });
-    </script>
-  </body>
+
+    var map = new ol.Map({
+        target: 'map',
+        layers: [
+            new ol.layer.Tile({
+                preload: 4,
+                source: new ol.source.OSM()
+            }),
+            new ol.layer.Tile({
+                preload: 4,
+                source: new ol.source.XYZ({
+                    url: 'http://t1.openseamap.org/seamark/{z}/{x}/{y}.png'
+                })
+            }),
+            new ol.layer.Vector({
+                source: vectorSource
+            })
+        ],
+        loadTilesWhileAnimating: true,
+        view: view
+    });
+
+    var maxZoom = 28;
+
+    var styleForZoom = (zoom) => {
+        return new ol.style.Style({
+            image: new ol.style.Circle({
+                radius: (maxZoom - zoom) * .5,
+                stroke: new ol.style.Stroke({
+                    color: 'rgba(61,152,204,.8)',
+                    width: 0
+                }),
+                fill: new ol.style.Fill({
+                    color: 'rgba(255,255,255,.8)'
+                })
+            })
+        });
+    };
+
+    var update = (lt, ln) => {
+
+        var zoom = map.getView().getZoom();
+
+        // Toggle animation on click
+        map.on('click', (evt) => {
+            shouldPan = !shouldPan;
+        });
+
+        if (zoom !== currentZoom) {
+            currentZoom = zoom;
+            vectorSource.getFeatures().map(feature => {
+                feature.setStyle(styleForZoom(zoom));
+            });
+        }
+
+        var currentLocation = ol.proj.fromLonLat([ln, lt]);
+
+        var boatLocation = new ol.Feature({
+            geometry: new ol.geom.Point(ol.proj.fromLonLat([ln, lt]))
+        });
+
+        boatLocation.setStyle(styleForZoom(zoom));
+
+        vectorSource.addFeature(boatLocation);
+
+        if (shouldPan) {
+            view.animate({
+                center: currentLocation,
+                duration: .5
+            });
+        }
+    };
+
+    document.addEventListener("DOMContentLoaded", function () {
+        'use strict';
+        var protocol = window.location.protocol === "https:" ? "wss" : "ws";
+        var host = window.location.hostname;
+        var port = (location.port ? ':' + location.port : '');
+        var ws = null;
+
+        function start() {
+            ws = new WebSocket(protocol + "://" + host + port + "/ws");
+
+            ws.onopen = function () {
+                console.log('connected!');
+            };
+
+            ws.onclose = function () {
+                console.log('closed!');
+                check();
+            };
+
+            ws.onmessage = function (event) {
+                var sailsd = JSON.parse(event.data);
+                update(sailsd.latitude, sailsd.longitude);
+            };
+        }
+
+        function check() {
+            if (!ws || ws.readyState === WebSocket.CLOSED) start();
+        }
+
+        start();
+        setInterval(check, 5000);
+    });
+
+</script>
+</body>
 </html>
